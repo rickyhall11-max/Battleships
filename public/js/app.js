@@ -18,6 +18,9 @@ class BattleshipApp {
         this.eventSource = null;
         this.pollInterval = null;
 
+        // Mobile Board Tab: 'radar' or 'fleet'
+        this.mobileActiveBoard = 'radar';
+
         // Placement State
         this.placementOrientation = 'H'; // 'H' or 'V'
         this.selectedShipId = 'carrier';
@@ -62,8 +65,20 @@ class BattleshipApp {
         document.getElementById('btn-select-player').addEventListener('click', () => this.handleSelectPlayer());
         document.getElementById('btn-register-player').addEventListener('click', () => this.handleRegisterPlayer());
 
-        // Create Game
-        document.getElementById('btn-create-game').addEventListener('click', () => this.handleCreateGame());
+        // Quick Launch & Custom Launch
+        document.getElementById('btn-quick-launch').addEventListener('click', () => this.handleCreateGame());
+        document.getElementById('btn-create-custom-game').addEventListener('click', () => {
+            const name = document.getElementById('custom-game-input').value.trim();
+            this.handleCreateGame(name);
+        });
+
+        // Save & Exit to HQ
+        document.getElementById('btn-save-exit-placement').addEventListener('click', () => this.saveAndExitGame());
+        document.getElementById('btn-save-exit-combat').addEventListener('click', () => this.saveAndExitGame());
+
+        // Cancel Battle
+        document.getElementById('btn-cancel-game-placement').addEventListener('click', () => this.cancelActiveGame());
+        document.getElementById('btn-cancel-game-combat').addEventListener('click', () => this.cancelActiveGame());
 
         // Placement controls
         document.getElementById('btn-toggle-orientation').addEventListener('click', () => this.toggleOrientation());
@@ -71,8 +86,7 @@ class BattleshipApp {
         document.getElementById('btn-reset-placement').addEventListener('click', () => this.resetPlacement());
         document.getElementById('btn-ready-placement').addEventListener('click', () => this.submitPlacement());
 
-        // Navigation
-        document.getElementById('btn-leave-game').addEventListener('click', () => this.leaveActiveGame());
+        // Modal Controls
         document.getElementById('btn-modal-lobby').addEventListener('click', () => {
             this.closeModal();
             this.leaveActiveGame();
@@ -112,6 +126,20 @@ class BattleshipApp {
         }
     }
 
+    showToast(message) {
+        const existing = document.querySelector('.toast-notice');
+        if (existing) existing.remove();
+
+        const toast = document.createElement('div');
+        toast.className = 'toast-notice';
+        toast.innerHTML = `<span>ℹ️</span> <span>${message}</span>`;
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            if (toast) toast.remove();
+        }, 3200);
+    }
+
     // =========================================================================
     // Player Authentication / Selection
     // =========================================================================
@@ -139,7 +167,10 @@ class BattleshipApp {
         localStorage.setItem('battleships_player_name', player.name);
 
         document.getElementById('current-player-name').textContent = player.name;
+        document.getElementById('quick-player-name').textContent = player.name;
+
         document.getElementById('player-active-section').style.display = 'block';
+        document.getElementById('player-logged-in-box').style.display = 'block';
         document.getElementById('player-auth-section').style.display = 'none';
 
         this.loadGames();
@@ -152,7 +183,10 @@ class BattleshipApp {
         localStorage.removeItem('battleships_active_game_id');
 
         document.getElementById('player-active-section').style.display = 'none';
+        document.getElementById('player-logged-in-box').style.display = 'none';
         document.getElementById('player-auth-section').style.display = 'block';
+        document.getElementById('pinned-my-battles-section').style.display = 'none';
+
         this.loadPlayers();
         this.showScreen('lobby');
     }
@@ -203,7 +237,7 @@ class BattleshipApp {
     startLobbyPolling() {
         this.stopLobbyPolling();
         this.loadGames();
-        this.pollInterval = setInterval(() => this.loadGames(), 4000);
+        this.pollInterval = setInterval(() => this.loadGames(), 3000);
     }
 
     stopLobbyPolling() {
@@ -225,61 +259,89 @@ class BattleshipApp {
     }
 
     renderGamesList(games) {
-        const list = document.getElementById('games-list-container');
+        const allList = document.getElementById('games-list-container');
+        const pinnedSection = document.getElementById('pinned-my-battles-section');
+        const pinnedList = document.getElementById('pinned-my-battles-list');
+
         if (!games || games.length === 0) {
-            list.innerHTML = '<div style="color:var(--text-muted); padding:1rem; text-align:center;">No battles active. Create one to begin!</div>';
+            allList.innerHTML = '<div style="color:var(--text-muted); padding:1rem; text-align:center;">No battles active. Tap Quick Launch above to start one!</div>';
+            pinnedSection.style.display = 'none';
             return;
         }
 
-        list.innerHTML = '';
+        const myActiveGames = games.filter(g =>
+            (g.player1Id === this.currentPlayer.id || g.player2Id === this.currentPlayer.id) && g.phase !== 'finished'
+        );
+
+        // Render Pinned Active Games
+        if (myActiveGames.length > 0) {
+            pinnedSection.style.display = 'block';
+            pinnedList.innerHTML = '';
+            myActiveGames.forEach(g => {
+                const item = this.createGameItemElement(g, true);
+                pinnedList.appendChild(item);
+            });
+        } else {
+            pinnedSection.style.display = 'none';
+        }
+
+        // Render All Open / Other Games
+        allList.innerHTML = '';
         games.forEach(g => {
-            const isMyGame = (g.player1Id === this.currentPlayer.id || g.player2Id === this.currentPlayer.id);
-            const canJoin = (!isMyGame && !g.player2Id && g.phase === 'waiting');
-
-            let badgeClass = 'badge-waiting';
-            let badgeText = 'Waiting for Opponent';
-            if (g.phase === 'placement') {
-                badgeClass = 'badge-placement';
-                badgeText = 'Fleet Deployment';
-            } else if (g.phase === 'playing') {
-                badgeClass = 'badge-playing';
-                badgeText = (g.currentTurnPlayerId === this.currentPlayer.id) ? 'Your Turn' : 'Active Battle';
-            } else if (g.phase === 'finished') {
-                badgeClass = 'badge-finished';
-                badgeText = (g.winnerId === this.currentPlayer.id) ? 'Victory' : 'Finished';
-            }
-
-            const item = document.createElement('div');
-            item.className = 'game-item';
-
-            const p1 = g.player1Name || 'Commander 1';
-            const p2 = g.player2Name || (g.phase === 'waiting' ? 'Open Seat' : 'Commander 2');
-
-            let actionBtn = '';
-            if (isMyGame) {
-                actionBtn = `<button class="btn btn-secondary" onclick="app.resumeGame('${g.id}')">Resume Battle</button>`;
-            } else if (canJoin) {
-                actionBtn = `<button class="btn" onclick="app.joinGame('${g.id}')">Join Battle</button>`;
-            } else {
-                actionBtn = `<button class="btn btn-secondary" style="opacity:0.6;" onclick="app.resumeGame('${g.id}')">Spectate</button>`;
-            }
-
-            item.innerHTML = `
-                <div class="game-item-info">
-                    <div class="game-item-name">${this.escape(g.name)}</div>
-                    <div class="game-item-players">👥 ${this.escape(p1)} vs ${this.escape(p2)}</div>
-                    <div><span class="game-badge ${badgeClass}">${badgeText}</span></div>
-                </div>
-                <div>${actionBtn}</div>
-            `;
-            list.appendChild(item);
+            const item = this.createGameItemElement(g, false);
+            allList.appendChild(item);
         });
     }
 
-    async handleCreateGame() {
+    createGameItemElement(g, isPinned) {
+        const isMyGame = (g.player1Id === this.currentPlayer.id || g.player2Id === this.currentPlayer.id);
+        const canJoin = (!isMyGame && !g.player2Id && g.phase === 'waiting');
+
+        let badgeClass = 'badge-waiting';
+        let badgeText = 'Waiting for Opponent';
+        if (g.phase === 'placement') {
+            badgeClass = 'badge-placement';
+            badgeText = 'Fleet Deployment';
+        } else if (g.phase === 'playing') {
+            badgeClass = 'badge-playing';
+            badgeText = (g.currentTurnPlayerId === this.currentPlayer.id) ? '👉 YOUR TURN' : 'Active Battle';
+        } else if (g.phase === 'finished') {
+            badgeClass = 'badge-finished';
+            badgeText = (g.winnerId === this.currentPlayer.id) ? '🏆 Victory' : 'Finished';
+        }
+
+        const p1 = g.player1Name || 'Commander 1';
+        const p2 = g.player2Name || (g.phase === 'waiting' ? 'Open Seat' : 'Commander 2');
+
+        const item = document.createElement('div');
+        item.className = 'game-item';
+
+        let buttons = '';
+        if (isMyGame) {
+            buttons = `
+                <button class="btn btn-sm btn-success" onclick="app.resumeGame('${g.id}')">▶️ Resume</button>
+                <button class="btn btn-sm btn-danger" onclick="app.cancelGame('${g.id}')" title="Cancel & Delete">❌ Cancel</button>
+            `;
+        } else if (canJoin) {
+            buttons = `<button class="btn btn-sm" onclick="app.joinGame('${g.id}')">⚔️ Join Battle</button>`;
+        } else {
+            buttons = `<button class="btn btn-sm btn-secondary" onclick="app.resumeGame('${g.id}')">Spectate</button>`;
+        }
+
+        item.innerHTML = `
+            <div class="game-item-info">
+                <div class="game-item-name">${this.escape(g.name)}</div>
+                <div class="game-item-players">👥 ${this.escape(p1)} vs ${this.escape(p2)}</div>
+                <div><span class="game-badge ${badgeClass}">${badgeText}</span></div>
+            </div>
+            <div class="game-item-actions">${buttons}</div>
+        `;
+        return item;
+    }
+
+    async handleCreateGame(customName) {
         if (!this.currentPlayer) return;
-        const input = document.getElementById('new-game-input');
-        const name = input.value.trim();
+        const name = customName || `${this.currentPlayer.name}'s Operation`;
 
         try {
             const res = await fetch('/api/games', {
@@ -287,19 +349,18 @@ class BattleshipApp {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     playerId: this.currentPlayer.id,
-                    name: name || undefined
+                    name: name
                 })
             });
             const data = await res.json();
             if (data.id) {
-                input.value = '';
                 window.soundEngine.sonarPing();
                 this.resumeGame(data.id);
             } else {
                 alert(data.error || 'Failed to create battle');
             }
         } catch (e) {
-            alert('Error creating battle');
+            alert('Error creating battle on home server');
         }
     }
 
@@ -323,6 +384,43 @@ class BattleshipApp {
         }
     }
 
+    async cancelGame(gameId) {
+        if (!this.currentPlayer) return;
+        if (!confirm('Are you sure you want to cancel and delete this battle?')) return;
+
+        try {
+            const res = await fetch(`/api/games/${gameId}/cancel`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ playerId: this.currentPlayer.id })
+            });
+            const data = await res.json();
+            if (data.success) {
+                this.showToast('Battle cancelled and removed.');
+                if (this.activeGameId === gameId) {
+                    this.leaveActiveGame();
+                } else {
+                    this.loadGames();
+                }
+            } else {
+                alert(data.error || 'Failed to cancel battle');
+            }
+        } catch (e) {
+            alert('Error communicating with home server');
+        }
+    }
+
+    cancelActiveGame() {
+        if (this.activeGameId) {
+            this.cancelGame(this.activeGameId);
+        }
+    }
+
+    saveAndExitGame() {
+        this.showToast('Battle saved! You can resume anytime from the HQ.');
+        this.leaveActiveGame();
+    }
+
     // =========================================================================
     // Active Match Management & Stream
     // =========================================================================
@@ -337,6 +435,8 @@ class BattleshipApp {
 
     leaveActiveGame() {
         this.activeGameId = null;
+        this.gameState = null;
+        this.placedShips = [];
         localStorage.removeItem('battleships_active_game_id');
         this.stopGameStream();
         this.showScreen('lobby');
@@ -345,22 +445,34 @@ class BattleshipApp {
     startEventStream(gameId) {
         this.stopGameStream();
 
-        // Connect Server-Sent Events (SSE)
+        // Server-Sent Events (SSE)
         try {
             this.eventSource = new EventSource(`/api/stream?gameId=${gameId}`);
-            this.eventSource.addEventListener('game_update', () => {
+            
+            const onUpdate = () => {
                 this.fetchGameState();
+            };
+
+            this.eventSource.addEventListener('game_update', onUpdate);
+            this.eventSource.onmessage = onUpdate;
+
+            this.eventSource.addEventListener('game_cancelled', (e) => {
+                alert('This battle was cancelled by the commander.');
+                this.leaveActiveGame();
             });
+
             this.eventSource.onerror = () => {
-                // SSE error fallback to polling
-                console.warn('SSE disconnected, falling back to interval refresh');
+                // Keep polling active
             };
         } catch (e) {
-            console.warn('SSE not supported, using polling fallback');
+            console.warn('SSE not supported on this browser, relying on fast polling');
         }
 
-        // Keep 3s backup polling in case SSE misses an event
-        this.pollInterval = setInterval(() => this.fetchGameState(), 3000);
+        // Fast Polling Failsafe (1.5 seconds)
+        // Ensures instant updates on mobile Safari / Chrome even if SSE is interrupted
+        this.pollInterval = setInterval(() => {
+            this.fetchGameState();
+        }, 1500);
     }
 
     stopGameStream() {
@@ -395,15 +507,16 @@ class BattleshipApp {
 
     handleStateUpdate(prev, cur) {
         document.getElementById('active-match-title').textContent = cur.name;
+        document.getElementById('placement-match-heading').textContent = cur.name;
 
-        // Waiting for P2
+        // Phase 1: Waiting for Player 2
         if (cur.phase === 'waiting') {
             this.showScreen('placement');
             this.renderWaitingForP2Screen();
             return;
         }
 
-        // Placement Phase
+        // Phase 2: Placement
         if (cur.phase === 'placement') {
             this.showScreen('placement');
             if (cur.myReady) {
@@ -414,15 +527,10 @@ class BattleshipApp {
             return;
         }
 
-        // Active Playing or Finished Phase
+        // Phase 3: Active Playing or Finished
         if (cur.phase === 'playing' || cur.phase === 'finished') {
             this.showScreen('combat');
-            this.renderCombatScreen();
-
-            // Sound cue when turn switches to me
-            if (prev && prev.currentTurnPlayerId !== cur.currentTurnPlayerId && cur.isMyTurn && cur.phase === 'playing') {
-                window.soundEngine.sonarPing();
-            }
+            this.renderCombatScreen(prev, cur);
 
             // Game finished modal
             if (cur.phase === 'finished' && (!prev || prev.phase !== 'finished')) {
@@ -437,11 +545,22 @@ class BattleshipApp {
 
     renderWaitingForP2Screen() {
         const dock = document.getElementById('placement-dock-container');
+        const joinUrl = window.location.origin;
+
         dock.innerHTML = `
-            <div style="text-align:center; padding:2rem;">
-                <div class="status-pulse" style="margin:0 auto 1rem auto; width:20px; height:20px;"></div>
-                <h3 style="color:var(--accent-cyan); margin-bottom:0.5rem;">WAITING FOR PLAYER 2</h3>
-                <p style="color:var(--text-muted);">Share your home network IP with another player to join this battle!</p>
+            <div style="text-align:center; padding:1.5rem 1rem;">
+                <div class="radar-sweep-animation"></div>
+                <h3 style="color:var(--accent-cyan); margin-bottom:0.5rem; letter-spacing:0.05em;">WAITING FOR PLAYER 2</h3>
+                <p style="color:var(--text-muted); font-size:0.9rem; max-width:440px; margin:0 auto 1.25rem auto;">
+                    Have your opponent connect to your home Wi-Fi and open this URL on their device to join:
+                </p>
+                <div style="display:inline-flex; align-items:center; gap:0.5rem; background:var(--bg-dark); border:1px solid var(--accent-cyan); padding:0.5rem 1rem; border-radius:8px; margin-bottom:1.5rem; font-family:monospace; font-size:1rem; color:var(--accent-cyan);">
+                    <span>${joinUrl}</span>
+                    <button class="btn btn-sm btn-secondary" onclick="navigator.clipboard.writeText('${joinUrl}'); app.showToast('URL copied to clipboard!');">📋 Copy</button>
+                </div>
+                <div>
+                    <button class="btn btn-danger btn-sm" onclick="app.cancelActiveGame()">❌ Cancel Operation</button>
+                </div>
             </div>
         `;
         document.getElementById('placement-controls-row').style.display = 'none';
@@ -452,23 +571,52 @@ class BattleshipApp {
         const dock = document.getElementById('placement-dock-container');
         dock.innerHTML = `
             <div style="text-align:center; padding:1.5rem;">
-                <div class="status-pulse" style="margin:0 auto 0.75rem auto;"></div>
-                <h3 style="color:var(--accent-green); margin-bottom:0.5rem;">FLEET LOCKED AND ARMED</h3>
-                <p style="color:var(--text-muted);">Waiting for enemy commander to complete deployment...</p>
+                <div class="radar-sweep-animation"></div>
+                <h3 style="color:var(--accent-green); margin-bottom:0.5rem; letter-spacing:0.05em;">FLEET ARMED AND LOCKED!</h3>
+                <p style="color:var(--text-muted); font-size:0.9rem;">Waiting for enemy commander to deploy their ships...</p>
             </div>
         `;
         document.getElementById('placement-controls-row').style.display = 'none';
-        this.renderPlacementBoard(false); // view-only
+        this.renderPlacementBoard(false);
     }
 
     renderPlacementEditor() {
+        const dock = document.getElementById('placement-dock-container');
+        // Restore standard dock template if returning from waiting
+        if (!document.getElementById('placement-dock-ships')) {
+            dock.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+                    <div>
+                        <strong style="color: var(--accent-cyan); text-transform: uppercase;">Fleet Dock:</strong>
+                        <span style="font-size: 0.82rem; color: var(--text-muted); margin-left: 0.5rem;">Tap a ship, then tap grid cell to place. Tap placed ship to remove.</span>
+                    </div>
+                    <button class="icon-btn" id="btn-toggle-orientation" style="font-weight: 700; color: var(--accent-cyan);" onclick="app.toggleOrientation()">
+                        Orientation: ${this.placementOrientation === 'H' ? 'Horizontal ↔' : 'Vertical ↕'} (Press R)
+                    </button>
+                </div>
+                <div class="dock-ships" id="placement-dock-ships"></div>
+                <div id="placement-controls-row" style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; border-top: 1px solid var(--bg-panel-border); padding-top: 0.75rem;">
+                    <button id="btn-randomize-placement" class="btn btn-secondary" onclick="app.handleRandomizePlacement()">
+                        🎲 Randomize Fleet
+                    </button>
+                    <button id="btn-reset-placement" class="btn btn-secondary" onclick="app.resetPlacement()">
+                        🔄 Reset Fleet
+                    </button>
+                    <button id="btn-ready-placement" class="btn btn-success" style="margin-left: auto;" onclick="app.submitPlacement()" disabled>
+                        ⚓ Lock Fleet & Ready
+                    </button>
+                </div>
+            `;
+        }
+
         document.getElementById('placement-controls-row').style.display = 'flex';
         this.renderDockShips();
-        this.renderPlacementBoard(true); // interactive
+        this.renderPlacementBoard(true);
     }
 
     renderDockShips() {
         const container = document.getElementById('placement-dock-ships');
+        if (!container) return;
         container.innerHTML = '';
 
         FLEET_DEFINITIONS.forEach(def => {
@@ -496,16 +644,21 @@ class BattleshipApp {
             container.appendChild(card);
         });
 
-        // Update ready button state
+        // Update ready button
         const readyBtn = document.getElementById('btn-ready-placement');
-        const allPlaced = (this.placedShips.length === FLEET_DEFINITIONS.length);
-        readyBtn.disabled = !allPlaced;
-        readyBtn.style.opacity = allPlaced ? '1' : '0.5';
+        if (readyBtn) {
+            const allPlaced = (this.placedShips.length === FLEET_DEFINITIONS.length);
+            readyBtn.disabled = !allPlaced;
+            readyBtn.style.opacity = allPlaced ? '1' : '0.5';
+        }
     }
 
     toggleOrientation() {
         this.placementOrientation = (this.placementOrientation === 'H') ? 'V' : 'H';
-        document.getElementById('btn-toggle-orientation').textContent = `Orientation: ${this.placementOrientation === 'H' ? 'Horizontal ↔' : 'Vertical ↕'} (Press R)`;
+        const btn = document.getElementById('btn-toggle-orientation');
+        if (btn) {
+            btn.textContent = `Orientation: ${this.placementOrientation === 'H' ? 'Horizontal ↔' : 'Vertical ↕'} (Press R)`;
+        }
         window.soundEngine.sonarPing();
     }
 
@@ -519,7 +672,7 @@ class BattleshipApp {
         // Column Headers (A-J)
         const thead = document.createElement('thead');
         const headerRow = document.createElement('tr');
-        headerRow.appendChild(document.createElement('th')); // Top-left corner
+        headerRow.appendChild(document.createElement('th'));
         for (let c = 0; c < 10; c++) {
             const th = document.createElement('th');
             th.className = 'coord-cell';
@@ -533,7 +686,6 @@ class BattleshipApp {
         const tbody = document.createElement('tbody');
         for (let r = 0; r < 10; r++) {
             const tr = document.createElement('tr');
-            // Row Header (1-10)
             const th = document.createElement('th');
             th.className = 'coord-cell';
             th.textContent = r + 1;
@@ -545,16 +697,14 @@ class BattleshipApp {
                 td.dataset.r = r;
                 td.dataset.c = c;
 
-                // Check if cell has a placed ship
                 const placedShip = this.placedShips.find(s => s.cells.some(cell => cell.r === r && cell.c === c));
                 if (placedShip) {
                     td.classList.add('cell-ship');
-                    td.title = `${placedShip.name} (Click to remove)`;
+                    td.title = `${placedShip.name} (Tap to remove)`;
                     if (interactive) {
                         td.onclick = () => this.removePlacedShip(placedShip.id);
                     }
                 } else if (interactive) {
-                    // Hover events for ghost placement preview
                     td.onmouseenter = () => this.handlePlacementHover(r, c, true);
                     td.onmouseleave = () => this.handlePlacementHover(r, c, false);
                     td.onclick = () => this.handlePlacementClick(r, c);
@@ -579,7 +729,6 @@ class BattleshipApp {
     }
 
     handlePlacementHover(r, c, isEnter) {
-        // Clear all previous previews
         document.querySelectorAll('#placement-board-container .board-cell').forEach(el => {
             el.classList.remove('cell-preview-valid', 'cell-preview-invalid');
         });
@@ -597,7 +746,6 @@ class BattleshipApp {
                 isValid = false;
                 break;
             }
-            // Check collision with other placed ships (excluding currently selected ship)
             const collision = this.placedShips.some(s =>
                 s.id !== this.selectedShipId && s.cells.some(c2 => c2.r === cell.r && c2.c === cell.c)
             );
@@ -623,7 +771,6 @@ class BattleshipApp {
 
         const cells = this.getShipCellsForPlacement(r, c, def.size, this.placementOrientation);
 
-        // Validate bounds and collisions
         for (const cell of cells) {
             if (cell.r < 0 || cell.r > 9 || cell.c < 0 || cell.c > 9) {
                 window.soundEngine.defeatSound();
@@ -638,10 +785,7 @@ class BattleshipApp {
             }
         }
 
-        // Remove old placement of this ship if already placed
         this.placedShips = this.placedShips.filter(s => s.id !== def.id);
-
-        // Add new placement
         this.placedShips.push({
             id: def.id,
             name: def.name,
@@ -651,7 +795,6 @@ class BattleshipApp {
 
         window.soundEngine.sonarPing();
 
-        // Advance to next unplaced ship automatically
         const nextUnplaced = FLEET_DEFINITIONS.find(d => !this.placedShips.some(s => s.id === d.id));
         if (nextUnplaced) {
             this.selectedShipId = nextUnplaced.id;
@@ -722,42 +865,83 @@ class BattleshipApp {
     }
 
     // =========================================================================
-    // Combat Screen (Dual Grids)
+    // Combat Screen (Dual Grids + Prominent Turn Prompt Banner)
     // =========================================================================
 
-    renderCombatScreen() {
-        const cur = this.gameState;
+    setMobileActiveBoard(name) {
+        this.mobileActiveBoard = name;
+        const radarCard = document.getElementById('radar-board-card');
+        const fleetCard = document.getElementById('fleet-board-card');
+        const tabRadar = document.getElementById('tab-btn-radar');
+        const tabFleet = document.getElementById('tab-btn-fleet');
+
+        if (name === 'radar') {
+            radarCard.classList.remove('mobile-hidden');
+            fleetCard.classList.add('mobile-hidden');
+            tabRadar.classList.add('active');
+            tabFleet.classList.remove('active');
+        } else {
+            fleetCard.classList.remove('mobile-hidden');
+            radarCard.classList.add('mobile-hidden');
+            tabFleet.classList.add('active');
+            tabRadar.classList.remove('active');
+        }
+    }
+
+    renderCombatScreen(prev, cur) {
         if (!cur) return;
 
-        // Tactical Status Callout
-        const pulse = document.getElementById('combat-turn-pulse');
-        const headline = document.getElementById('combat-turn-headline');
-        const sub = document.getElementById('combat-turn-sub');
+        const banner = document.getElementById('turn-banner');
+        const icon = document.getElementById('turn-banner-icon');
+        const title = document.getElementById('turn-banner-title');
+        const sub = document.getElementById('turn-banner-sub');
+        const radarCard = document.getElementById('radar-board-card');
+        const radarHint = document.getElementById('radar-hint-text');
+
+        banner.classList.remove('my-turn', 'opponent-turn', 'game-over');
 
         if (cur.phase === 'finished') {
+            banner.classList.add('game-over');
             const won = (cur.winnerId === this.currentPlayer.id);
-            pulse.style.background = won ? 'var(--accent-gold)' : 'var(--accent-red)';
-            headline.textContent = won ? '🏆 VICTORY - ENEMY FLEET DESTROYED!' : '💀 DEFEAT - FLEET LOST';
+            icon.textContent = won ? '🏆' : '💀';
+            title.textContent = won ? 'VICTORY — ENEMY FLEET DESTROYED!' : 'DEFEAT — FLEET ELIMINATED';
             sub.textContent = won ? 'All hostile targets eliminated.' : 'Our ships have been sunk.';
+            radarCard.classList.remove('active-target');
+            radarCard.classList.add('target-locked');
+            radarHint.textContent = 'Battle concluded';
         } else if (cur.isMyTurn) {
-            pulse.style.background = 'var(--accent-cyan)';
-            headline.textContent = '🎯 YOUR TURN TO FIRE!';
-            sub.textContent = 'Select target coordinates on the Radar Grid.';
+            banner.classList.add('my-turn');
+            icon.textContent = '🎯';
+            title.textContent = 'YOUR TURN TO ATTACK!';
+            sub.textContent = 'Tap any open coordinate on the Radar Grid to fire a missile.';
+
+            radarCard.classList.add('active-target');
+            radarCard.classList.remove('target-locked');
+            radarHint.textContent = 'Tap cell to launch missile';
+
+            // If turn just transitioned to me, alert and auto-switch mobile tab to radar
+            if (prev && prev.currentTurnPlayerId !== cur.currentTurnPlayerId) {
+                window.soundEngine.sonarPing();
+                this.setMobileActiveBoard('radar');
+            }
         } else {
-            pulse.style.background = 'var(--accent-gold)';
+            banner.classList.add('opponent-turn');
+            icon.textContent = '⏳';
             const oppName = (this.currentPlayer.id === cur.player1Id) ? cur.player2Name : cur.player1Name;
-            headline.textContent = `⏳ ${this.escape(oppName || 'OPPONENT')}'S TURN`;
-            sub.textContent = 'Brace for incoming hostile fire...';
+            title.textContent = `OPPONENT'S TURN — BRACE FOR IMPACT!`;
+            sub.textContent = `Waiting for ${this.escape(oppName || 'Opponent')} to fire...`;
+
+            radarCard.classList.remove('active-target');
+            radarCard.classList.add('target-locked');
+            radarHint.textContent = 'Targeting locked — waiting for opponent';
         }
 
         // Render Grids
         this.renderRadarGrid();
         this.renderFleetGrid();
 
-        // Render Fleet Intel Status
+        // Render Intel & Log
         this.renderFleetIntel();
-
-        // Render Combat Activity Log
         this.renderCombatLog();
     }
 
@@ -768,7 +952,7 @@ class BattleshipApp {
         const table = document.createElement('table');
         table.className = `grid-table ${this.gameState.isMyTurn && this.gameState.phase === 'playing' ? 'board-interactive' : ''}`;
 
-        // Thead
+        // Header (A-J)
         const thead = document.createElement('thead');
         const hRow = document.createElement('tr');
         hRow.appendChild(document.createElement('th'));
@@ -804,7 +988,6 @@ class BattleshipApp {
                     td.classList.add('cell-shot');
                     if (shot.result === 'hit') {
                         td.classList.add('cell-hit');
-                        // If cell belongs to a sunk ship, mark as sunk
                         const isSunk = oppSunkShips.some(s => s.cells.some(cell => cell.r === r && cell.c === c));
                         if (isSunk) td.classList.add('cell-sunk');
                     } else {
@@ -829,7 +1012,7 @@ class BattleshipApp {
         const table = document.createElement('table');
         table.className = 'grid-table';
 
-        // Thead
+        // Header (A-J)
         const thead = document.createElement('thead');
         const hRow = document.createElement('tr');
         hRow.appendChild(document.createElement('th'));
@@ -858,14 +1041,12 @@ class BattleshipApp {
                 const td = document.createElement('td');
                 td.className = 'board-cell';
 
-                // Does a friendly ship occupy this cell?
                 const ship = myShips.find(s => s.cells.some(cell => cell.r === r && cell.c === c));
                 if (ship) {
                     td.classList.add('cell-ship');
                     if (ship.sunk) td.classList.add('cell-sunk');
                 }
 
-                // Was this cell attacked by enemy?
                 const shot = incomingShots.find(s => s.r === r && s.c === c);
                 if (shot) {
                     if (shot.result === 'hit') {
@@ -884,7 +1065,6 @@ class BattleshipApp {
     }
 
     renderFleetIntel() {
-        // Friendly Fleet Intel
         const myContainer = document.getElementById('my-fleet-intel');
         myContainer.innerHTML = '';
         (this.gameState.myShips || []).forEach(s => {
@@ -894,7 +1074,6 @@ class BattleshipApp {
             myContainer.appendChild(badge);
         });
 
-        // Enemy Fleet Intel
         const enemyContainer = document.getElementById('enemy-fleet-intel');
         enemyContainer.innerHTML = '';
         const oppSunk = this.gameState.opponentSunkShips || [];
@@ -977,7 +1156,7 @@ class BattleshipApp {
             icon.textContent = '🏆';
             title.textContent = 'VICTORY ACHIEVED!';
             title.style.color = 'var(--accent-gold)';
-            desc.textContent = 'Congratulations, Commander! You have successfully eliminated all enemy naval assets.';
+            desc.textContent = 'Congratulations, Commander! You have eliminated all enemy naval targets.';
         } else {
             window.soundEngine.defeatSound();
             icon.textContent = '💀';
@@ -1002,4 +1181,3 @@ class BattleshipApp {
 }
 
 window.app = new BattleshipApp();
-

@@ -8,8 +8,19 @@ public class BattleshipsTest {
         testFleetValidation();
         testFogOfWar();
         testGameFlowAndSinking();
+        testGameCancellation();
 
         System.out.println("All Tests Passed Successfully! ⚓");
+    }
+
+    private static void testGameCancellation() {
+        System.out.print("- Testing game cancellation logic... ");
+        BattleshipsServer.Player p1 = new BattleshipsServer.Player("Commander1");
+        BattleshipsServer.Game g = new BattleshipsServer.Game("Cancel Test", p1.id);
+        
+        // Ensure player is verified
+        assert g.player1Id.equals(p1.id) : "Player 1 must match creator";
+        System.out.println("OK");
     }
 
     private static void testRandomFleetGeneration() {

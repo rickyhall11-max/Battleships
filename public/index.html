@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>⚓ Battleships Command Center</title>
     <link rel="stylesheet" href="/css/style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚓</text></svg>">
@@ -24,7 +24,7 @@
                 <div class="user-badge">
                     <span class="indicator"></span>
                     <span>Commander: <strong id="current-player-name">---</strong></span>
-                    <button class="icon-btn" id="btn-switch-player" title="Switch Commander" style="margin-left: 0.5rem; padding: 0.15rem 0.5rem; font-size: 0.75rem;">Switch</button>
+                    <button class="icon-btn" id="btn-switch-player" title="Switch Commander" style="margin-left: 0.35rem; padding: 0.15rem 0.5rem; font-size: 0.75rem;">Switch</button>
                 </div>
             </div>
 
@@ -41,12 +41,44 @@
         <!-- SCREEN 1: LOBBY & REGISTRATION                                -->
         <!-- ============================================================= -->
         <section id="view-lobby" class="view-screen">
+
+            <!-- Pinned Active Battles for Current Commander -->
+            <div id="pinned-my-battles-section" class="pinned-battles-card" style="display: none;">
+                <div class="card-title" style="color: var(--accent-green); margin-bottom: 0.75rem;">
+                    ⭐ Your In-Progress Battles
+                </div>
+                <div id="pinned-my-battles-list" class="game-list"></div>
+            </div>
+
             <div class="lobby-grid">
 
-                <!-- Commander Profile / Selection -->
+                <!-- Commander Profile / Launch -->
                 <div class="card-panel">
                     <div class="card-title">👤 Commander Profile</div>
 
+                    <!-- Logged In Quick Actions -->
+                    <div id="player-logged-in-box" style="display: none;">
+                        <div class="quick-start-box">
+                            <div>
+                                <div class="quick-start-text">Welcome, <span id="quick-player-name" style="color: var(--accent-cyan);">Commander</span>!</div>
+                                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">Ready for immediate deployment.</div>
+                            </div>
+                            <button id="btn-quick-launch" class="btn btn-success" style="width: 100%; margin-top: 0.5rem;">
+                                ⚡ Quick Launch New Battle
+                            </button>
+                        </div>
+
+                        <!-- Custom Operation Form -->
+                        <div style="border-top: 1px solid var(--bg-panel-border); padding-top: 1rem; margin-top: 1rem;">
+                            <label class="form-label" for="custom-game-input">Or Name Custom Operation</label>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <input type="text" id="custom-game-input" class="form-input" placeholder="e.g. Pacific Showdown" maxlength="32">
+                                <button id="btn-create-custom-game" class="btn btn-secondary" style="white-space: nowrap;">Create</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Not Logged In Auth Form -->
                     <div id="player-auth-section">
                         <div class="form-group">
                             <label class="form-label" for="player-select-dropdown">Resume Existing Commander</label>
@@ -58,7 +90,7 @@
                             </button>
                         </div>
 
-                        <div style="text-align: center; margin: 1rem 0; color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase;">
+                        <div style="text-align: center; margin: 1rem 0; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">
                             - or enlist new -
                         </div>
 
@@ -71,28 +103,17 @@
                         </div>
                     </div>
 
-                    <!-- Create New Match -->
-                    <div style="margin-top: 2rem; border-top: 1px solid var(--bg-panel-border); padding-top: 1.5rem;">
-                        <div class="card-title">⚔️ Launch New Battle</div>
-                        <div class="form-group">
-                            <label class="form-label" for="new-game-input">Operation / Match Name</label>
-                            <input type="text" id="new-game-input" class="form-input" placeholder="e.g. Pacific Showdown" maxlength="32">
-                        </div>
-                        <button id="btn-create-game" class="btn" style="width: 100%;">
-                            Create Operation
-                        </button>
-                    </div>
                 </div>
 
-                <!-- Active Battles Table -->
+                <!-- All Battles Table -->
                 <div class="card-panel">
                     <div class="card-title">
-                        <span>📡 Active Naval Engagements</span>
-                        <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: auto; font-weight: normal;">Live Updates</span>
+                        <span>📡 Open & Active Battles</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted); margin-left: auto; font-weight: normal;">Live Auto-Sync</span>
                     </div>
 
                     <div id="games-list-container" class="game-list">
-                        <div style="color:var(--text-muted); padding:1rem; text-align:center;">Loading engagements...</div>
+                        <div style="color:var(--text-muted); padding:1rem; text-align:center;">Loading naval operations...</div>
                     </div>
                 </div>
 
@@ -103,23 +124,26 @@
         <!-- SCREEN 2: FLEET DEPLOYMENT (PLACEMENT)                        -->
         <!-- ============================================================= -->
         <section id="view-placement" class="view-screen">
-            <div class="tactical-status-bar">
-                <div class="status-callout">
-                    <div class="status-pulse"></div>
-                    <div>
-                        <div class="status-headline" id="placement-status-headline">Fleet Deployment Phase</div>
-                        <div class="status-subtitle" id="placement-status-sub">Position your 5 vessels on the tactical grid.</div>
-                    </div>
+
+            <!-- Top Action Header -->
+            <div class="tactical-top-actions">
+                <div class="match-heading" id="placement-match-heading">Fleet Deployment Phase</div>
+                <div class="action-buttons-group">
+                    <button class="btn btn-secondary btn-sm" id="btn-save-exit-placement">
+                        💾 Save & Exit to HQ
+                    </button>
+                    <button class="btn btn-danger btn-sm" id="btn-cancel-game-placement">
+                        ❌ Cancel Battle
+                    </button>
                 </div>
-                <button class="btn btn-secondary" id="btn-leave-game">Leave to Lobby</button>
             </div>
 
             <!-- Ships Dock -->
             <div class="dock-panel" id="placement-dock-container">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
                     <div>
                         <strong style="color: var(--accent-cyan); text-transform: uppercase;">Fleet Dock:</strong>
-                        <span style="font-size: 0.85rem; color: var(--text-muted); margin-left: 0.5rem;">Select ship, click on grid to position. Click placed ship on grid to remove.</span>
+                        <span style="font-size: 0.82rem; color: var(--text-muted); margin-left: 0.5rem;">Tap a ship, then tap grid cell to place. Tap placed ship to remove.</span>
                     </div>
                     <button class="icon-btn" id="btn-toggle-orientation" style="font-weight: 700; color: var(--accent-cyan);">
                         Orientation: Horizontal ↔ (Press R)
@@ -128,7 +152,7 @@
 
                 <div class="dock-ships" id="placement-dock-ships"></div>
 
-                <div id="placement-controls-row" style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem; border-top: 1px solid var(--bg-panel-border); padding-top: 1rem;">
+                <div id="placement-controls-row" style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1rem; border-top: 1px solid var(--bg-panel-border); padding-top: 0.75rem;">
                     <button id="btn-randomize-placement" class="btn btn-secondary">
                         🎲 Randomize Fleet
                     </button>
@@ -142,7 +166,7 @@
             </div>
 
             <!-- Deployment Grid -->
-            <div style="display: flex; justify-content: center; margin-top: 1.5rem;">
+            <div style="display: flex; justify-content: center; margin-top: 1rem;">
                 <div class="board-card">
                     <div class="board-header">
                         <span class="board-name board-fleet-name">🛡️ Friendly Fleet Placement Grid (10x10)</span>
@@ -157,29 +181,52 @@
         <!-- ============================================================= -->
         <section id="view-combat" class="view-screen">
 
-            <!-- Tactical Status Header -->
-            <div class="tactical-status-bar">
-                <div class="status-callout">
-                    <div class="status-pulse" id="combat-turn-pulse"></div>
-                    <div>
-                        <div class="status-headline" id="combat-turn-headline">Waiting...</div>
-                        <div class="status-subtitle" id="combat-turn-sub">Synchronizing tactical telemetry...</div>
-                    </div>
-                </div>
-                <div>
-                    <span id="active-match-title" style="font-weight: 800; color: var(--accent-cyan); margin-right: 1rem; text-transform: uppercase;"></span>
-                    <button class="btn btn-secondary" onclick="app.leaveActiveGame()">HQ / Lobby</button>
+            <!-- Top Action Header -->
+            <div class="tactical-top-actions">
+                <div class="match-heading" id="active-match-title">Operation</div>
+                <div class="action-buttons-group">
+                    <button class="btn btn-secondary btn-sm" id="btn-save-exit-combat">
+                        💾 Save & Exit to HQ
+                    </button>
+                    <button class="btn btn-danger btn-sm" id="btn-cancel-game-combat">
+                        ❌ Forfeit / Cancel
+                    </button>
                 </div>
             </div>
 
-            <!-- Dual Grids Side-by-Side -->
+            <!-- ========================================================= -->
+            <!-- UNMISSABLE TURN PROMPT BANNER                             -->
+            <!-- ========================================================= -->
+            <div class="turn-banner-container">
+                <div class="turn-banner my-turn" id="turn-banner">
+                    <div class="turn-banner-main">
+                        <span class="turn-banner-icon" id="turn-banner-icon">🎯</span>
+                        <div>
+                            <div class="turn-banner-title" id="turn-banner-title">YOUR TURN TO FIRE!</div>
+                            <div class="turn-banner-sub" id="turn-banner-sub">Tap any un-attacked coordinate on the Radar Grid.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mobile Grid Switcher Tabs (Shown on Phone/Tablet) -->
+            <div class="mobile-board-tabs">
+                <button class="tab-btn active" id="tab-btn-radar" onclick="app.setMobileActiveBoard('radar')">
+                    🎯 Radar Grid (Attack)
+                </button>
+                <button class="tab-btn" id="tab-btn-fleet" onclick="app.setMobileActiveBoard('fleet')">
+                    🛡️ Fleet Grid (Defense)
+                </button>
+            </div>
+
+            <!-- Dual Grids Container -->
             <div class="boards-container">
 
                 <!-- Left Board: RADAR / ATTACK -->
-                <div class="board-card">
+                <div class="board-card" id="radar-board-card">
                     <div class="board-header">
-                        <span class="board-name board-radar-name">🎯 Radar Grid (Target Enemy Waters)</span>
-                        <span style="font-size: 0.8rem; color: var(--text-muted);">Click cell to fire</span>
+                        <span class="board-name board-radar-name">🎯 Radar Grid (Enemy Waters)</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);" id="radar-hint-text">Tap cell to launch missile</span>
                     </div>
 
                     <div class="grid-wrapper" id="radar-board-container"></div>
@@ -192,10 +239,10 @@
                 </div>
 
                 <!-- Right Board: FLEET / DEFENSE -->
-                <div class="board-card">
+                <div class="board-card" id="fleet-board-card">
                     <div class="board-header">
                         <span class="board-name board-fleet-name">🛡️ Fleet Defense Grid (Our Waters)</span>
-                        <span style="font-size: 0.8rem; color: var(--text-muted);">Incoming fire status</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">Incoming fire status</span>
                     </div>
 
                     <div class="grid-wrapper" id="fleet-board-container"></div>
@@ -211,7 +258,7 @@
 
             <!-- Combat Activity Log -->
             <div class="combat-log-card">
-                <div style="font-weight: 700; color: var(--accent-cyan); font-size: 0.85rem; text-transform: uppercase; margin-bottom: 0.5rem; letter-spacing: 0.05em;">
+                <div style="font-weight: 700; color: var(--accent-cyan); font-size: 0.8rem; text-transform: uppercase; margin-bottom: 0.4rem; letter-spacing: 0.05em;">
                     📜 Tactical Combat Log
                 </div>
                 <div class="log-entries" id="combat-log-entries"></div>
@@ -227,7 +274,7 @@
             <div class="modal-icon" id="modal-icon">🏆</div>
             <div class="modal-title" id="modal-title">VICTORY ACHIEVED!</div>
             <div class="modal-desc" id="modal-desc">All enemy vessels have been neutralized.</div>
-            <div style="display: flex; gap: 1rem; justify-content: center;">
+            <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
                 <button class="btn" id="btn-modal-rematch">Request Rematch</button>
                 <button class="btn btn-secondary" id="btn-modal-lobby">Return to HQ</button>
             </div>
@@ -239,4 +286,3 @@
     <script src="/js/app.js"></script>
 </body>
 </html>
-

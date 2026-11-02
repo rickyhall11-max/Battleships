@@ -126,6 +126,18 @@ public class BattleshipsServer {
             }
         }
 
+        synchronized boolean sendPing() {
+            if (closed.get()) return false;
+            try {
+                os.write(": ping\n\n".getBytes(StandardCharsets.UTF_8));
+                os.flush();
+                return true;
+            } catch (IOException e) {
+                closed.set(true);
+                return false;
+            }
+        }
+
         void close() {
             if (closed.compareAndSet(false, true)) {
                 try {
@@ -139,6 +151,16 @@ public class BattleshipsServer {
         List<SseClient> clients = sseClients.get(gameId);
         if (clients != null) {
             clients.removeIf(client -> !client.send("game_update", "{\"gameId\":\"" + gameId + "\"}"));
+        }
+    }
+
+    static void notifyGameCancelled(String gameId, String cancelledByName) {
+        List<SseClient> clients = sseClients.remove(gameId);
+        if (clients != null) {
+            for (SseClient client : clients) {
+                client.send("game_cancelled", "{\"gameId\":\"" + gameId + "\",\"cancelledBy\":\"" + escape(cancelledByName) + "\"}");
+                client.close();
+            }
         }
     }
 
@@ -709,6 +731,25 @@ public class BattleshipsServer {
                         sendJson(exchange, 200, "{\"success\":true}");
                         return;
                     }
+
+                    // POST /api/games/{id}/cancel
+                    if ("cancel".equals(action) && "POST".equals(method)) {
+                        String body = readBody(exchange);
+                        String playerId = parseStringField(body, "playerId");
+                        if (playerId == null || (!playerId.equals(game.player1Id) && !playerId.equals(game.player2Id))) {
+                            sendError(exchange, 403, "Only participants may cancel this battle");
+                            return;
+                        }
+
+                        Player cancellingPlayer = players.get(playerId);
+                        String cName = cancellingPlayer != null ? cancellingPlayer.name : "Commander";
+
+                        games.remove(game.id);
+                        saveState();
+                        notifyGameCancelled(game.id, cName);
+                        sendJson(exchange, 200, "{\"success\":true}");
+                        return;
+                    }
                 }
             }
 
@@ -732,14 +773,32 @@ public class BattleshipsServer {
             }
 
             exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
-            exchange.getResponseHeaders().set("Cache-Control", "no-cache");
+            exchange.getResponseHeaders().set("Cache-Control", "no-cache, no-transform");
             exchange.getResponseHeaders().set("Connection", "keep-alive");
+            exchange.getResponseHeaders().set("X-Accel-Buffering", "no");
             exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             exchange.sendResponseHeaders(200, 0);
 
             SseClient client = new SseClient(exchange);
             sseClients.computeIfAbsent(gameId, k -> new CopyOnWriteArrayList<>()).add(client);
             client.send("connected", "{\"status\":\"ok\"}");
+
+            // Keep the virtual thread alive to service this SSE stream with periodic heartbeats
+            try {
+                while (!client.closed.get()) {
+                    Thread.sleep(8000);
+                    if (!client.sendPing()) {
+                        break;
+                    }
+                }
+            } catch (InterruptedException ignored) {
+            } finally {
+                client.close();
+                List<SseClient> list = sseClients.get(gameId);
+                if (list != null) {
+                    list.remove(client);
+                }
+            }
         }
     }
 
