@@ -1,0 +1,14 @@
+# Compiled binaries
+bin/
+*.class
+
+# Runtime dynamic data & saves
+data/*
+!data/.gitkeep
+
+# IDE and OS files
+.vscode/
+.idea/
+*.log
+.DS_Store
+Thumbs.db
